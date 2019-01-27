@@ -24,7 +24,7 @@ data LispVal = Atom String
              | DottedList [LispVal] LispVal
              | LispNumber LispNumber
              | String String
-<<<<<<< HEAD
+             | Character Char
              | Bool Bool deriving (Eq, Show)
 
 
@@ -40,12 +40,7 @@ showVal (DottedList h t) = "(" ++ (unwordsList h) ++ " . " ++ (showVal t) ++ ")"
 unwordsList :: [LispVal] -> String            
 unwordsList = unwords . (map showVal)
 
-=======
-             | Character Char
-             | Bool Bool deriving (Eq, Show)
 
-
->>>>>>> d63a759... Initial commit
 -- Grammar
 --
 -- Expr = Atom | StringLiteral | Number | Quoted | QuasiQuoted | List | DottedList
@@ -56,11 +51,7 @@ unwordsList = unwords . (map showVal)
 --
 -- Number = Complex | Real | Rational | Integer
 -- Integer = WithBase | (digit)+
-<<<<<<< HEAD
 -- WithBase = # (b | o | x | d) IntegerInRadix (the ommited "integer in radix" rule, checks that the digits correspond to the current radix being parsed)
-=======
--- WithBase = # (b | o | x | d) IntegerInRadix (this is a bit more logicfully)
->>>>>>> d63a759... Initial commit
 -- Rational = Integer / Integer
 -- Real = [+ | -] Float
 -- Float = Integer . Integer
@@ -72,7 +63,6 @@ unwordsList = unwords . (map showVal)
 -- QuasiList = '(' (QuasiExpr spaces)+ ')'
 -- QuasiExpr = [,] Expr
 --
-<<<<<<< HEAD
 -- List = '(' ExprSequence [DotExpr] ')'
 -- ExprSequence = (Expr spaces)+
 -- DotExpr = . Expr
@@ -80,12 +70,6 @@ unwordsList = unwords . (map showVal)
 -- this two rules are actually not used, they are only informative,
 -- the other List rule is the one that handles both cases
 -- List = '(' ExprSequence ')'
-=======
--- List = '(' ExprSequence ')'
--- ExprSequence = (Expr spaces)+
--- (Exprs spaces)+
--- DotExpr = [. Expr]
->>>>>>> d63a759... Initial commit
 -- DottedList = '(' ExprSequence DotExpr ')'
 
 type Parser = Parsec Void String
@@ -108,18 +92,9 @@ parseExpr = parseAtom
                 return (LispNumber n)
          <|> parseQuoted
          <|> parseQuasiQuoted
-<<<<<<< HEAD
          <|> parseList
-         -- <|> do char '('
-         --        x <- try parseList <|> parseDottedList
-         --        char ')'
-         --        return x
          <?> "Expression"
-=======
-         <|> do char '('
-                x <- try parseList <|> parseDottedList
-                char ')'
-                return x
+
 
 parseChar :: Parser LispVal
 parseChar = do
@@ -129,7 +104,6 @@ parseChar = do
     "space" -> Character ' '
     "newline" -> Character '\n'
     _ -> Character $ head val
->>>>>>> d63a759... Initial commit
 
 parseString :: Parser LispVal
 parseString = do
@@ -152,10 +126,6 @@ parseRational = do
   LispInteger d <- parseInteger
   return (LispRational n d)
 
-<<<<<<< HEAD
-=======
-
->>>>>>> d63a759... Initial commit
 parseImaginary = do
   si <- oneOf ['+','-']
   img <- optional (try parseReal <|> try parseRational <|> parseInteger)
@@ -207,7 +177,6 @@ parseWithBase = do
 -- Lists
 
 parseList :: Parser LispVal
-<<<<<<< HEAD
 parseList = do
   char '('
   head <- parseExprSequence
@@ -222,15 +191,6 @@ parseExprSequence = sepEndBy1 parseExpr space
 
 parseDotExpr :: Parser LispVal
 parseDotExpr = char '.' >> space >> parseExpr
-=======
-parseList = liftM List $ sepBy1 parseExpr spaces
-
-parseDottedList :: Parser LispVal
-parseDottedList = do
-    head <- endBy1 parseExpr spaces
-    tail <- char '.' >> spaces >> parseExpr
-    return $ DottedList head tail
->>>>>>> d63a759... Initial commit
 
 parseQuoted :: Parser LispVal
 parseQuoted = do
