@@ -1,5 +1,6 @@
 module AxoParser
   ( LispVal(..)
+  , LispNumber (..)
   , parseReal
   , readExpr
   ) where
@@ -16,7 +17,7 @@ import qualified Text.Megaparsec.Char.Lexer as L
 data LispNumber = LispComplex Double Double
                 | LispReal Double
                 | LispRational Integer Integer
-                | LispInteger Integer deriving(Eq, Show)
+                | LispInteger Integer deriving(Eq)
 
 data LispVal = Atom String
              | List [LispVal]
@@ -25,17 +26,29 @@ data LispVal = Atom String
              | LispNumber LispNumber
              | String String
              | Character Char
-             | Bool Bool deriving (Eq, Show)
+             | Bool Bool deriving (Eq)
 
+
+instance Show LispVal where show = showVal
 
 showVal :: LispVal -> String
 showVal (Atom a) = a
--- showVal (LispNumber n) =
+showVal (LispNumber n) = showNum n
 showVal (String s) = "\"" ++ s ++ "\""
+showVal (Character c) = "#\\" ++ (case c of
+                                    ' ' -> "space"
+                                    '\n' -> "newline"
+                                    _ -> [c])                        
 showVal (Bool b) = if b then "#t" else "#f"
 showVal (List l) = "(" ++ (unwordsList l) ++ ")"
 showVal (Vector v) = "#(" ++ (unwordsList v) ++ ")"
 showVal (DottedList h t) = "(" ++ (unwordsList h) ++ " . " ++ (showVal t) ++ ")"
+
+showNum :: LispNumber -> String
+showNum (LispComplex r i) = (show r) ++ (if i < 0 then (show i) else "+" ++ (show i)) ++ "i"
+showNum (LispReal r) = show r
+showNum (LispRational n d) = (show n) ++ "/" ++ (show d)
+showNum (LispInteger i) = show i
   
 unwordsList :: [LispVal] -> String            
 unwordsList = unwords . (map showVal)
@@ -80,10 +93,11 @@ symbol = oneOf "!#$%&|*+-/:<=>?@^_~"
 spaces :: Parser ()
 spaces = skipSome space1
 
-readExpr :: String -> String
+readExpr :: String -> LispVal
 readExpr input = case parse parseExpr "lisp" input of
-    Left err -> "No match: " ++ show err
-    Right val -> "Found value"
+    Left err -> String $ "No match: " ++ show err
+    Right val -> val
+
 
 parseExpr :: Parser LispVal
 parseExpr = parseAtom
@@ -238,3 +252,88 @@ parseAtom = do
                          "#t" -> Bool True
                          "#f" -> Bool False
                          _    -> Atom atom                       
+
+
+-- Evaluator
+
+
+eval :: LispVal -> LispVal
+eval val@(String _) = val
+eval val@(LispNumber _) = val
+eval val@(Bool _) = val
+eval (List [Atom "quote", val]) = val
+eval (List (Atom func:args)) = apply func $ map eval args
+
+apply :: String -> [LispVal] -> LispVal
+apply func args = maybe (Bool False) ($ args) $ lookup func primitives
+
+primitives :: [(String, [LispVal] -> LispVal)]
+primitives = [("+", numericBinop (+)),
+              ("-", numericBinop (-)),
+              ("*", numericBinop (*)),
+              ("/", numericBinop div),
+              ("mod", numericBinop mod),
+              ("quotient", numericBinop quot),
+              ("remainder", numericBinop rem)] ++ typeTests ++ conversions
+
+typeTests :: [(String, [LispVal] -> LispVal)]
+typeTests = [("boolean?", typeOp isBool),
+            ("pair?", typeOp isPair),
+            ("vector?", typeOp isVector),
+            ("number?", typeOp isNumber),
+            ("string?", typeOp isString),
+            ("char?", typeOp isChar),
+            ("symbol?", typeOp isSymbol)]
+
+conversions :: [(String, [LispVal] -> LispVal)]
+conversions = [("symbol->string", unaryOp symToString)]
+
+isSymbol (Atom _) = True
+isSymbol _ = False
+
+symToString (Atom a) = String $ show a
+
+isBool (Bool _) = True
+isBool _ = False
+
+isPair (List _) = True
+isPair _ = False
+
+isVector (Vector _) = True
+isVector _ = False 
+
+isNumber (LispNumber _) = True
+isNumber _ = False
+
+isString (String _) = True
+isString _ = False
+
+isChar (Character _) = True
+isChar _ = False
+
+unaryOp :: (LispVal -> LispVal) -> [LispVal] -> LispVal
+unaryOp op params = if length params > 1
+                    then Bool False
+                    else op $ head params
+                    
+typeOp :: (LispVal -> Bool) -> [LispVal] -> LispVal
+typeOp op params = Bool $ if length params > 1
+               then False
+               else op $ head params               
+              
+numericBinop :: (Integer -> Integer -> Integer) -> [LispVal] -> LispVal
+numericBinop op params = LispNumber $ LispInteger $ foldl1 op $ map unpackVal params
+
+unpackVal :: LispVal -> Integer
+unpackVal (LispNumber (LispInteger n)) = n
+unpackVal _ = 0 --error
+
+unpackNum :: LispNumber -> Integer
+-- unpackNum (LispComplex n _) = n
+-- unpackNum (LispReal n) = n
+-- unpackNum (LispRational n d) = (fromIntegral n) / (fromIntegral d)
+unpackNum (LispInteger n) = n
+unpackNum _ = 0 --error
+
+readEval :: String -> LispVal
+readEval = eval . readExpr

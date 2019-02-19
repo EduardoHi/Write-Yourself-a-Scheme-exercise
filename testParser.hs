@@ -6,9 +6,9 @@ import Text.Megaparsec
 -- Receives the Double to parse, and returns success or failure
 testparseFloat :: Double -> Bool
 testparseFloat x =
-  let r = runParser parseFloat "" (show x) in
+  let r = runParser parseReal "" (show x) in
     case r of
-      Right a -> a == AxoFloat x
+      Right a -> a == LispReal x
       Left _ -> False
 
 
