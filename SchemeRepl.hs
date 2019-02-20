@@ -1,7 +1,10 @@
 module SchemeRepl where
 
+import Control.Monad.Except
 import System.IO
 import SchemeEval
+import SchemeParser(LispError,ThrowsError)
+import LispVal
 
 flushStr :: String -> IO ()
 flushStr str = putStr str >> hFlush stdout
@@ -26,3 +29,4 @@ runRepl = until_ (== "quit") (readPrompt "Lisp>>> ") evalAndPrint
 
 main :: IO ()
 main = runRepl
+
