@@ -1,18 +1,22 @@
-module AxoParser
+module SchemeParser
   ( LispVal(..)
-  , LispNumber (..)
-  , parseReal
+  , LispNumber(..)
+  , LispError(..)
+  , ThrowsError
   , readExpr
+  , unwordsList
   ) where
 
 import System.Environment
 import Control.Monad
+import Control.Monad.Except
 import Data.Void
 import Numeric
-import Text.Megaparsec
+import Text.Megaparsec hiding (ParseError)
 import Text.Megaparsec.Char
 import Text.Megaparsec.Debug
 import qualified Text.Megaparsec.Char.Lexer as L
+
 
 data LispNumber = LispComplex Double Double
                 | LispReal Double
@@ -86,6 +90,7 @@ unwordsList = unwords . (map showVal)
 -- DottedList = '(' ExprSequence DotExpr ')'
 
 type Parser = Parsec Void String
+type ParseError = ParseErrorBundle String Void
 
 symbol :: Parser Char
 symbol = oneOf "!#$%&|*+-/:<=>?@^_~"
@@ -93,10 +98,10 @@ symbol = oneOf "!#$%&|*+-/:<=>?@^_~"
 spaces :: Parser ()
 spaces = skipSome space1
 
-readExpr :: String -> LispVal
+readExpr :: String -> ThrowsError LispVal
 readExpr input = case parse parseExpr "lisp" input of
-    Left err -> String $ "No match: " ++ show err
-    Right val -> val
+    Left err -> throwError $ ParserErr err
+    Right val -> return val
 
 
 parseExpr :: Parser LispVal
@@ -201,7 +206,7 @@ parseList = do
              Just exp -> DottedList head exp
 
 parseExprSequence :: Parser [LispVal]
-parseExprSequence = sepEndBy1 parseExpr space
+parseExprSequence = sepEndBy parseExpr space
 
 parseDotExpr :: Parser LispVal
 parseDotExpr = char '.' >> space >> parseExpr
@@ -253,87 +258,26 @@ parseAtom = do
                          "#f" -> Bool False
                          _    -> Atom atom                       
 
+---
 
--- Evaluator
+data LispError = NumArgs Integer [LispVal]
+               | TypeMismatch String LispVal
+               | ParserErr ParseError 
+               | BadSpecialForm String LispVal
+               | NotFunction String String
+               | UnboundVar String String
+               | Default String
 
+showError :: LispError -> String
+showError (UnboundVar message varname)  = message ++ ": " ++ varname
+showError (BadSpecialForm message form) = message ++ ": " ++ show form
+showError (NotFunction message func)    = message ++ ": " ++ show func
+showError (NumArgs expected found)      = "Expected " ++ show expected 
+                                       ++ " args; found values " ++ unwordsList found
+showError (TypeMismatch expected found) = "Invalid type: expected " ++ expected
+                                       ++ ", found " ++ show found
+showError (ParserErr parseErr)          = "Parse error at " ++ show parseErr
 
-eval :: LispVal -> LispVal
-eval val@(String _) = val
-eval val@(LispNumber _) = val
-eval val@(Bool _) = val
-eval (List [Atom "quote", val]) = val
-eval (List (Atom func:args)) = apply func $ map eval args
+instance Show LispError where show = showError
 
-apply :: String -> [LispVal] -> LispVal
-apply func args = maybe (Bool False) ($ args) $ lookup func primitives
-
-primitives :: [(String, [LispVal] -> LispVal)]
-primitives = [("+", numericBinop (+)),
-              ("-", numericBinop (-)),
-              ("*", numericBinop (*)),
-              ("/", numericBinop div),
-              ("mod", numericBinop mod),
-              ("quotient", numericBinop quot),
-              ("remainder", numericBinop rem)] ++ typeTests ++ conversions
-
-typeTests :: [(String, [LispVal] -> LispVal)]
-typeTests = [("boolean?", typeOp isBool),
-            ("pair?", typeOp isPair),
-            ("vector?", typeOp isVector),
-            ("number?", typeOp isNumber),
-            ("string?", typeOp isString),
-            ("char?", typeOp isChar),
-            ("symbol?", typeOp isSymbol)]
-
-conversions :: [(String, [LispVal] -> LispVal)]
-conversions = [("symbol->string", unaryOp symToString)]
-
-isSymbol (Atom _) = True
-isSymbol _ = False
-
-symToString (Atom a) = String $ show a
-
-isBool (Bool _) = True
-isBool _ = False
-
-isPair (List _) = True
-isPair _ = False
-
-isVector (Vector _) = True
-isVector _ = False 
-
-isNumber (LispNumber _) = True
-isNumber _ = False
-
-isString (String _) = True
-isString _ = False
-
-isChar (Character _) = True
-isChar _ = False
-
-unaryOp :: (LispVal -> LispVal) -> [LispVal] -> LispVal
-unaryOp op params = if length params > 1
-                    then Bool False
-                    else op $ head params
-                    
-typeOp :: (LispVal -> Bool) -> [LispVal] -> LispVal
-typeOp op params = Bool $ if length params > 1
-               then False
-               else op $ head params               
-              
-numericBinop :: (Integer -> Integer -> Integer) -> [LispVal] -> LispVal
-numericBinop op params = LispNumber $ LispInteger $ foldl1 op $ map unpackVal params
-
-unpackVal :: LispVal -> Integer
-unpackVal (LispNumber (LispInteger n)) = n
-unpackVal _ = 0 --error
-
-unpackNum :: LispNumber -> Integer
--- unpackNum (LispComplex n _) = n
--- unpackNum (LispReal n) = n
--- unpackNum (LispRational n d) = (fromIntegral n) / (fromIntegral d)
-unpackNum (LispInteger n) = n
-unpackNum _ = 0 --error
-
-readEval :: String -> LispVal
-readEval = eval . readExpr
+type ThrowsError = Either LispError
