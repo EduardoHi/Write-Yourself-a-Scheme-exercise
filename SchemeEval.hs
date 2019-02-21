@@ -4,62 +4,74 @@ module SchemeEval
   , trapError
   , extractValue
   , Env
+  , nullEnv
   ) where
 
-import Control.Monad.Except
-import SchemeParser
-import Data.IORef
+import           Control.Monad.Except
+import           Data.IORef
+import           SchemeParser
+import           LispVal
 
-import LispVal
+
+type Env = IORef [(String, IORef LispVal)]
+
+type IOThrowsError = ExceptT LispError IO
+
 
 -- Evaluator
 
-eval :: LispVal -> ThrowsError LispVal
-eval val@(String _) = return val
-eval val@(LispNumber _) = return val
-eval val@(Bool _) = return val
-eval (List [Atom "quote", val]) = return val
-eval (List [Atom "if", pred, conseq, alt]) = do
-  result <- eval pred
+eval :: Env -> LispVal -> IOThrowsError LispVal
+eval env val@(String _) = return val
+eval env val@(LispNumber _) = return val
+eval env val@(Bool _) = return val
+eval env (Atom id) = getVar env id
+eval env (List [Atom "quote", val]) = return val
+eval env (List [Atom "if", pred, conseq, alt]) = do
+  result <- eval env pred
   case result of
-    Bool False -> eval alt
-    Bool True -> eval conseq
-    r -> throwError $ TypeMismatch "bool" r
+    Bool False -> eval env alt
+    Bool True  -> eval env conseq
+    r          -> throwError $ TypeMismatch "bool" r
 
-eval (List (Atom "cond":clauses)) =
+eval env (List (Atom "cond":clauses)) =
   evalClauses clauses
   where evalClauses [] = throwError $ Default "no condition true in cond"
-        evalClauses (c:clauses) = do 
-          r <- evalCondClause c
+        evalClauses (c:clauses) = do
+          r <- evalCondClause env c
           case r of
             Bool False -> evalClauses clauses
-            otherwise -> return r
-eval (List (Atom "case":key:clauses)) = do
-  kValue <- eval key
+            otherwise  -> return r
+eval env (List (Atom "case":key:clauses)) = do
+  kValue <- eval env key
   evalClauses clauses kValue
   where
     evalClauses [] _ = throwError $ Default "no condition true in cond"
     evalClauses (c:clauses) k = do
-      r <- evalCaseClause c k
+      r <- evalCaseClause env c k
       case r of
         Bool False -> evalClauses clauses k
-        otherwise -> return r
-            
-eval (List (Atom func:args)) = mapM eval args >>= apply func
-eval badForm = throwError $ BadSpecialForm "unrecognized special form" badForm
+        otherwise  -> return r
 
-evalCaseClause (List [Atom "else", exp]) key = eval exp
-evalCaseClause (List [List datums, exp]) key = do
-  if any (==key) datums then eval exp else return $ Bool False
-evalCaseClause badClause _ = throwError $ BadSpecialForm "unrecognized clause in case" badClause
-               
-evalCondClause (List [Atom "else", exp])= eval exp
-evalCondClause (List [test, exp]) =
-  do result <- eval test
+eval env (List [Atom "set!", Atom var, form]) =
+  eval env form >>= setVar env var
+eval env (List [Atom "define", Atom var, form]) =
+  eval env form >>= defineVar env var
+
+eval env (List (Atom func:args)) = mapM (eval env) args >>= liftThrows . apply func
+eval env badForm = throwError $ BadSpecialForm "unrecognized special form" badForm
+
+evalCaseClause env (List [Atom "else", exp]) key = eval env exp
+evalCaseClause env (List [List datums, exp]) key = do
+  if any (==key) datums then eval env exp else return $ Bool False
+evalCaseClause env badClause _ = throwError $ BadSpecialForm "unrecognized clause in case" badClause
+
+evalCondClause env (List [Atom "else", exp])= eval env exp
+evalCondClause env (List [test, exp]) =
+  do result <- eval env test
      case result of
-       Bool True -> eval exp
+       Bool True -> eval env exp
        otherwise -> return $ Bool False
-evalCondClause badClause = throwError $ BadSpecialForm "unrecognized clause in cond" badClause
+evalCondClause env badClause = throwError $ BadSpecialForm "unrecognized clause in cond" badClause
 
 
 apply :: String -> [LispVal] -> ThrowsError LispVal
@@ -111,35 +123,35 @@ conversions = [("symbol->string", unaryOp symToString),
 
 
 isSymbol (Atom _) = True
-isSymbol _ = False
+isSymbol _        = False
 
 symToString (Atom a) = String $ a
 stringToSym (String a) = Atom $ a
 
 isBool (Bool _) = True
-isBool _ = False
+isBool _        = False
 
 isPair (List _) = True
-isPair _ = False
+isPair _        = False
 
 isVector (Vector _) = True
-isVector _ = False 
+isVector _          = False
 
 isNumber (LispNumber _) = True
-isNumber _ = False
+isNumber _              = False
 
 isString (String _) = True
-isString _ = False
+isString _          = False
 
 isChar (Character _) = True
-isChar _ = False
+isChar _             = False
 
 unaryOp :: (LispVal -> LispVal) -> [LispVal] -> ThrowsError LispVal
 unaryOp op [] = throwError $ NumArgs 1 []
 unaryOp op params = if length params > 1
                     then throwError $ NumArgs (toInteger . length $ params) params
                     else return . op $ head params
-                    
+
 typeOp :: (LispVal -> Bool) -> [LispVal] -> ThrowsError LispVal
 typeOp op [] = throwError $ NumArgs 1 []
 typeOp op params = return $ Bool $ if length params > 1
@@ -147,7 +159,7 @@ typeOp op params = return $ Bool $ if length params > 1
                                    else op $ head params
 
 boolBinop :: (LispVal -> ThrowsError a) -> (a -> a -> Bool) -> [LispVal] -> ThrowsError LispVal
-boolBinop unpacker op args = if length args /= 2 
+boolBinop unpacker op args = if length args /= 2
                              then throwError $ NumArgs 2 args
                              else do left <- unpacker $ args !! 0
                                      right <- unpacker $ args !! 1
@@ -156,7 +168,7 @@ boolBinop unpacker op args = if length args /= 2
 numBoolBinop = boolBinop unpackNum
 strBoolBinop = boolBinop unpackStr
 boolBoolBinop = boolBinop unpackBool
-              
+
 numericBinop :: (Integer -> Integer -> Integer) -> [LispVal] -> ThrowsError LispVal
 numericBinop op            [] = throwError $ NumArgs 2 []
 numericBinop op singleVal@[_] = throwError $ NumArgs 2 singleVal
@@ -191,11 +203,11 @@ cdr [badArg]                = throwError $ TypeMismatch "pair" badArg
 cdr badArgList              = throwError $ NumArgs 1 badArgList
 
 cons :: [LispVal] -> ThrowsError LispVal
-cons [x1, List []] = return $ List [x1]
-cons [x, List xs] = return $ List $ x : xs
+cons [x1, List []]            = return $ List [x1]
+cons [x, List xs]             = return $ List $ x : xs
 cons [x, DottedList xs xlast] = return $ DottedList (x : xs) xlast
-cons [x1, x2] = return $ DottedList [x1] x2
-cons badArgList = throwError $ NumArgs 2 badArgList
+cons [x1, x2]                 = return $ DottedList [x1] x2
+cons badArgList               = throwError $ NumArgs 2 badArgList
 
 -- equivalences
 
@@ -208,7 +220,7 @@ eqv [(DottedList xs x), (DottedList ys y)] = eqv [List $ xs ++ [x], List $ ys ++
 eqv [(List arg1), (List arg2)]             =
   return $ Bool $ (length arg1 == length arg2) && (all eqvPair $ zip arg1 arg2)
      where eqvPair (x1, x2) = case eqv [x1, x2] of
-                                Left err -> False
+                                Left err         -> False
                                 Right (Bool val) -> val
 eqv [_, _]                                 = return $ Bool False
 eqv badArgList                             = throwError $ NumArgs 2 badArgList
@@ -216,40 +228,36 @@ eqv badArgList                             = throwError $ NumArgs 2 badArgList
 data Unpacker = forall a. Eq a => AnyUnpacker (LispVal -> ThrowsError a)
 
 unpackEquals :: LispVal -> LispVal -> Unpacker -> ThrowsError Bool
-unpackEquals arg1 arg2 (AnyUnpacker unpacker) = 
+unpackEquals arg1 arg2 (AnyUnpacker unpacker) =
              do unpacked1 <- unpacker arg1
                 unpacked2 <- unpacker arg2
                 (return $ unpacked1 == unpacked2) `catchError` (const $ return False)
 
 equal :: [LispVal] -> ThrowsError LispVal
 equal [arg1, arg2] = do
-      primitiveEquals <- liftM or $ mapM (unpackEquals arg1 arg2) 
+      primitiveEquals <- liftM or $ mapM (unpackEquals arg1 arg2)
                          [AnyUnpacker unpackNum, AnyUnpacker unpackStr, AnyUnpacker unpackBool]
       eqvEquals <- eqv [arg1, arg2]
       return $ Bool $ (primitiveEquals || let (Bool x) = eqvEquals in x)
 equal badArgList = throwError $ NumArgs 2 badArgList
 
 
-readEval :: String -> IO String
-readEval s = return $ extractValue $ trapError $ liftM show $ readExpr s >>= eval
+readEval :: Env -> String -> IO String
+readEval env s = runIOThrows $ liftM show $ (liftThrows $ readExpr s) >>= eval env
 
 trapError action = catchError action (return . show)
 
 extractValue :: ThrowsError a -> a
 extractValue (Right val) = val
 
+
 -- Variables and Assignments
-
-type Env = IORef [(String, IORef LispVal)]
-
-type IOThrowsError = ExceptT LispError IO
-
 
 nullEnv :: IO Env
 nullEnv = newIORef []
 
 liftThrows :: ThrowsError a -> IOThrowsError a
-liftThrows (Left err) = throwError err
+liftThrows (Left err)  = throwError err
 liftThrows (Right val) = return val
 
 runIOThrows :: IOThrowsError String -> IO String
@@ -270,6 +278,7 @@ setVar envRef var value = do env <- liftIO $ readIORef envRef
                                    (liftIO . (flip writeIORef value))
                                    (lookup var env)
                              return value
+
 defineVar :: Env -> String -> LispVal -> IOThrowsError LispVal
 defineVar envRef var value = do
   alreadyDefined <- liftIO $ isBound envRef var
@@ -282,8 +291,9 @@ defineVar envRef var value = do
     return value
 
 bindVars :: Env -> [(String, LispVal)] -> IO Env
-bindVars envRef bindings = readIORef envRef >>= extendEnv bindings >>= newIORef
-     where extendEnv bindings env = liftM (++ env) (mapM addBinding bindings)
-           addBinding (var, value) = do ref <- newIORef value
-                                        return (var, ref)   
+bindVars envRef bindings =
+  readIORef envRef >>= extendEnv bindings >>= newIORef
+  where extendEnv bindings env = liftM (++ env) (mapM addBinding bindings)
+        addBinding (var, value) = do ref <- newIORef value
+                                     return (var, ref)
 

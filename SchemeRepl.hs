@@ -13,8 +13,8 @@ readPrompt :: String -> IO String
 readPrompt prompt = flushStr prompt >> getLine
 
 
-evalAndPrint :: String -> IO ()
-evalAndPrint expr = readEval expr >>= putStrLn
+evalAndPrint :: Env -> String -> IO ()
+evalAndPrint env expr = readEval env expr >>= putStrLn
 
 until_ :: Monad m => (a -> Bool) -> m a -> (a -> m ()) -> m ()
 until_ pred prompt action = do 
@@ -25,7 +25,7 @@ until_ pred prompt action = do
 
 
 runRepl :: IO ()
-runRepl = until_ (== "quit") (readPrompt "Lisp>>> ") evalAndPrint
+runRepl = nullEnv >>= until_ (== "quit") (readPrompt "Lisp>>> ") . evalAndPrint
 
 main :: IO ()
 main = runRepl
