@@ -49,7 +49,6 @@ import LispVal
 -- DottedList = '(' ExprSequence DotExpr ')'
 
 type Parser = Parsec Void String
-type ParseError = ParseErrorBundle String Void
 
 symbol :: Parser Char
 symbol = oneOf "!#$%&|*+-/:<=>?@^_~"
@@ -216,27 +215,3 @@ parseAtom = do
                          "#t" -> Bool True
                          "#f" -> Bool False
                          _    -> Atom atom
-
-                         
-data LispError = NumArgs Integer [LispVal]
-                 | TypeMismatch String LispVal
-                 | ParserErr ParseError
-                 | BadSpecialForm String LispVal
-                 | NotFunction String String
-                 | UnboundVar String String
-                 | Default String
-
-showError :: LispError -> String
-showError (UnboundVar message varname)  = message ++ ": " ++ varname
-showError (BadSpecialForm message form) = message ++ ": " ++ show form
-showError (NotFunction message func)    = message ++ ": " ++ show func
-showError (NumArgs expected found)      = "Expected " ++ show expected 
-                                       ++ " args; found values " ++ unwordsList found
-showError (TypeMismatch expected found) = "Invalid type: expected " ++ expected
-                                       ++ ", found " ++ show found
-showError (ParserErr parseErr)          = "Parse error at " ++ show parseErr
-
-instance Show LispError where show = showError
-
-type ThrowsError = Either LispError
-

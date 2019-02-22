@@ -4,7 +4,7 @@ module SchemeEval
   , trapError
   , extractValue
   , Env
-  , nullEnv
+  , primitiveBindings
   ) where
 
 import           Control.Monad.Except
@@ -13,10 +13,7 @@ import           SchemeParser
 import           LispVal
 
 
-type Env = IORef [(String, IORef LispVal)]
-
 type IOThrowsError = ExceptT LispError IO
-
 
 -- Evaluator
 
@@ -41,29 +38,45 @@ eval env (List (Atom "cond":clauses)) =
           case r of
             Bool False -> evalClauses clauses
             otherwise  -> return r
-eval env (List (Atom "case":key:clauses)) = do
-  kValue <- eval env key
-  evalClauses clauses kValue
-  where
-    evalClauses [] _ = throwError $ Default "no condition true in cond"
-    evalClauses (c:clauses) k = do
-      r <- evalCaseClause env c k
-      case r of
-        Bool False -> evalClauses clauses k
-        otherwise  -> return r
+-- eval env (List (Atom "case":key:clauses)) = do
+--   kValue <- eval env key
+--   evalClauses clauses kValue
+--   where
+--     evalClauses [] _ = throwError $ Default "no condition true in cond"
+--     evalClauses (c:clauses) k = do
+--       r <- evalCaseClause env c k
+--       case r of
+--         Bool False -> evalClauses clauses k
+--         otherwise  -> return r
 
 eval env (List [Atom "set!", Atom var, form]) =
   eval env form >>= setVar env var
 eval env (List [Atom "define", Atom var, form]) =
   eval env form >>= defineVar env var
 
-eval env (List (Atom func:args)) = mapM (eval env) args >>= liftThrows . apply func
+eval env (List (Atom "define" : List (Atom var : params) : body)) =
+  makeNormalFunc env params body >>= defineVar env var
+eval env (List (Atom "define" : DottedList (Atom var : params) varargs : body)) =
+  makeVarArgs varargs env params body >>= defineVar env var
+eval env (List (Atom "lambda" : List params : body)) =
+  makeNormalFunc env params body
+eval env (List (Atom "lambda" : DottedList params varargs : body)) =
+  makeVarArgs varargs env params body
+eval env (List (Atom "lambda" : varargs@(Atom _) : body)) =
+  makeVarArgs varargs env [] body
+
+eval env (List (function : args)) = do
+  func <- eval env function
+  argVals <- mapM (eval env) args
+  apply func argVals
 eval env badForm = throwError $ BadSpecialForm "unrecognized special form" badForm
 
-evalCaseClause env (List [Atom "else", exp]) key = eval env exp
-evalCaseClause env (List [List datums, exp]) key = do
-  if any (==key) datums then eval env exp else return $ Bool False
-evalCaseClause env badClause _ = throwError $ BadSpecialForm "unrecognized clause in case" badClause
+
+
+-- evalCaseClause env (List [Atom "else", exp]) key = eval env exp
+-- evalCaseClause env (List [List datums, exp]) key = do
+--   if any (==key) datums then eval env exp else return $ Bool False
+-- evalCaseClause env badClause _ = throwError $ BadSpecialForm "unrecognized clause in case" badClause
 
 evalCondClause env (List [Atom "else", exp])= eval env exp
 evalCondClause env (List [test, exp]) =
@@ -73,11 +86,29 @@ evalCondClause env (List [test, exp]) =
        otherwise -> return $ Bool False
 evalCondClause env badClause = throwError $ BadSpecialForm "unrecognized clause in cond" badClause
 
+apply :: LispVal -> [LispVal] -> IOThrowsError LispVal
+apply (PrimitiveFunc func) args = liftThrows $ func args
 
-apply :: String -> [LispVal] -> ThrowsError LispVal
-apply func args = case lookup func primitives of
-                    Nothing -> throwError $ NotFunction "Unrecognized primitive function args" func
-                    Just f -> f args
+apply (Func params varargs body closure) args =
+  if len params /= len args && varargs == Nothing
+  then throwError $ NumArgs (len params) args
+  else (liftIO $ bindVars closure $ zip params args) >>= bindVarArgs varargs >>= evalBody
+  where len = toInteger . length
+        evalBody env = liftM last $ mapM (eval env) body
+        remainingArgs = drop (length params) args
+        bindVarArgs arg env = case arg of
+          Just argName -> liftIO $ bindVars env [(argName, List $ remainingArgs)]
+          Nothing -> return env
+
+
+makeFunc varargs env params body = return $ Func (map showVal params) varargs body env
+makeNormalFunc = makeFunc Nothing
+makeVarArgs = makeFunc . Just . showVal
+
+
+primitiveBindings :: IO Env
+primitiveBindings = nullEnv >>= (flip bindVars $ map makePrimitiveFunc primitives)
+  where makePrimitiveFunc (var, func) = (var, PrimitiveFunc func)
 
 primitives :: [(String, [LispVal] -> ThrowsError LispVal)]
 primitives = [("+", numericBinop (+)),
@@ -256,7 +287,7 @@ extractValue (Right val) = val
 nullEnv :: IO Env
 nullEnv = newIORef []
 
-liftThrows :: ThrowsError a -> IOThrowsError a
+liftThrows :: ThrowsError a -> IOThrowsError  a
 liftThrows (Left err)  = throwError err
 liftThrows (Right val) = return val
 
