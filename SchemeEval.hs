@@ -38,16 +38,6 @@ eval env (List (Atom "cond":clauses)) =
           case r of
             Bool False -> evalClauses clauses
             otherwise  -> return r
--- eval env (List (Atom "case":key:clauses)) = do
---   kValue <- eval env key
---   evalClauses clauses kValue
---   where
---     evalClauses [] _ = throwError $ Default "no condition true in cond"
---     evalClauses (c:clauses) k = do
---       r <- evalCaseClause env c k
---       case r of
---         Bool False -> evalClauses clauses k
---         otherwise  -> return r
 
 eval env (List [Atom "set!", Atom var, form]) =
   eval env form >>= setVar env var
@@ -71,12 +61,6 @@ eval env (List (function : args)) = do
   apply func argVals
 eval env badForm = throwError $ BadSpecialForm "unrecognized special form" badForm
 
-
-
--- evalCaseClause env (List [Atom "else", exp]) key = eval env exp
--- evalCaseClause env (List [List datums, exp]) key = do
---   if any (==key) datums then eval env exp else return $ Bool False
--- evalCaseClause env badClause _ = throwError $ BadSpecialForm "unrecognized clause in case" badClause
 
 evalCondClause env (List [Atom "else", exp])= eval env exp
 evalCondClause env (List [test, exp]) =
@@ -203,7 +187,6 @@ boolBoolBinop = boolBinop unpackBool
 numericBinop :: (Integer -> Integer -> Integer) -> [LispVal] -> ThrowsError LispVal
 numericBinop op            [] = throwError $ NumArgs 2 []
 numericBinop op singleVal@[_] = throwError $ NumArgs 2 singleVal
--- numericBinop op params = LispNumber $ LispInteger $ foldl1 op $ map unpackVal params
 numericBinop op        params = mapM unpackNum params >>= return . (LispNumber . LispInteger) . foldl1 op
 
 unpackStr :: LispVal -> ThrowsError String
