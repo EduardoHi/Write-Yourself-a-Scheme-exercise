@@ -32,7 +32,7 @@ runOne args = do
 
 
 runRepl :: IO ()
-runRepl = primitiveBindings >>= until_ (== "quit") (readPrompt "Lisp>>> ") . evalAndPrint
+runRepl = primitiveBindings >>= until_ (== "quit") (readPrompt "Scheme >>> ") . evalAndPrint
 
 main :: IO ()
 main = do

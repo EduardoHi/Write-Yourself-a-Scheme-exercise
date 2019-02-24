@@ -99,8 +99,9 @@ makeVarArgs = makeFunc . Just . showVal
 
 
 primitiveBindings :: IO Env
-primitiveBindings = nullEnv >>= (flip bindVars $ map makePrimitiveFunc primitives)
-  where makePrimitiveFunc (var, func) = (var, PrimitiveFunc func)
+primitiveBindings = nullEnv >>= (flip bindVars $ map (makeFunc IOFunc) ioPrimitives
+                                ++ map (makeFunc PrimitiveFunc) primitives)
+  where makeFunc constructor (var, func) = (var, constructor func)
 
 primitives :: [(String, [LispVal] -> ThrowsError LispVal)]
 primitives = [("+", numericBinop (+)),
@@ -360,3 +361,6 @@ load filename = (liftIO $ readFile filename) >>= liftThrows . readExprList
 
 readAll :: [LispVal] -> IOThrowsError LispVal
 readAll [String filename] = liftM List $ load filename
+
+
+loadTest = runIOThrows $ liftM show $ (load "SchemeStdLib.scm")
