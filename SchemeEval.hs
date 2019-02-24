@@ -3,17 +3,19 @@ module SchemeEval
   ( readEval
   , trapError
   , extractValue
+  , bindVars
+  , runIOThrows
   , Env
   , primitiveBindings
+  , eval
   ) where
 
 import           Control.Monad.Except
 import           Data.IORef
 import           SchemeParser
 import           LispVal
+import System.IO
 
-
-type IOThrowsError = ExceptT LispError IO
 
 -- Evaluator
 
@@ -55,10 +57,14 @@ eval env (List (Atom "lambda" : DottedList params varargs : body)) =
 eval env (List (Atom "lambda" : varargs@(Atom _) : body)) =
   makeVarArgs varargs env [] body
 
+eval env (List [Atom "load", String filename]) =
+  load filename >>= liftM last . mapM (eval env)
+
 eval env (List (function : args)) = do
   func <- eval env function
   argVals <- mapM (eval env) args
   apply func argVals
+  
 eval env badForm = throwError $ BadSpecialForm "unrecognized special form" badForm
 
 
@@ -83,6 +89,8 @@ apply (Func params varargs body closure) args =
         bindVarArgs arg env = case arg of
           Just argName -> liftIO $ bindVars env [(argName, List $ remainingArgs)]
           Nothing -> return env
+
+apply (IOFunc func) args = func args
 
 
 makeFunc varargs env params body = return $ Func (map showVal params) varargs body env
@@ -311,3 +319,44 @@ bindVars envRef bindings =
         addBinding (var, value) = do ref <- newIORef value
                                      return (var, ref)
 
+
+-- IO Primitives
+
+ioPrimitives :: [(String, [LispVal] ->  IOThrowsError LispVal)]
+ioPrimitives = [("apply", applyProc),
+                ("open-input-file", makePort ReadMode),
+                ("open-output-file", makePort WriteMode),
+                ("close-input-port", closePort),
+                ("close-output-port", closePort),
+                ("read", readProc),
+                ("write", writeProc),
+                ("read-contents", readContents),
+                ("read-all", readAll)]
+
+applyProc :: [LispVal] -> IOThrowsError LispVal
+applyProc [func, List args] = apply func args
+applyProc (func : args) = apply func args
+
+makePort :: IOMode -> [LispVal] -> IOThrowsError LispVal
+makePort mode [String filename] = liftM Port $ liftIO $ openFile filename mode
+
+closePort :: [LispVal] -> IOThrowsError LispVal
+closePort [Port port] = liftIO $ hClose port >> (return $ Bool True)
+closePort _ = return $ Bool False
+
+readProc :: [LispVal] -> IOThrowsError LispVal
+readProc [] = readProc [Port stdin]
+readProc [Port port] = (liftIO $ hGetLine port) >>= liftThrows . readExpr
+
+writeProc :: [LispVal] -> IOThrowsError LispVal
+writeProc [obj] = writeProc [obj, Port stdout]
+writeProc [obj, Port port] = liftIO $ hPrint port obj >> (return $ Bool True)
+
+readContents :: [LispVal] -> IOThrowsError LispVal
+readContents [String filename] = liftM String $ liftIO $ readFile filename
+
+load :: String -> IOThrowsError [LispVal]
+load filename = (liftIO $ readFile filename) >>= liftThrows . readExprList
+
+readAll :: [LispVal] -> IOThrowsError LispVal
+readAll [String filename] = liftM List $ load filename

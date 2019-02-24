@@ -3,6 +3,8 @@ module LispVal where
 import Data.Void
 import Text.Megaparsec (ParseErrorBundle)
 import Data.IORef
+import Control.Monad.Except
+import System.IO
 
 data LispNumber = LispComplex Double Double
                 | LispReal Double
@@ -16,12 +18,14 @@ data LispVal = Atom String
              | LispNumber LispNumber
              | String String
              | Character Char
+             | Bool Bool
              | PrimitiveFunc ([LispVal] -> ThrowsError LispVal)
              | Func { params  :: [String],
                       vararg  :: (Maybe String),
                       body    :: [LispVal],
                       closure :: Env }
-             | Bool Bool --deriving (Eq)
+             | IOFunc ([LispVal] -> IOThrowsError LispVal)
+             | Port Handle
 
 instance Show LispVal where show = showVal
 
@@ -44,6 +48,8 @@ showVal (Func params vararg body closure) =
       (case vararg of
          Nothing -> ""
          Just arg -> " . " ++ arg) ++ ") ...)"
+showVal (Port _) = "<IO port>"
+showVal (IOFunc _) = "<IO primitive>"
 
 
 showNum :: LispNumber -> String
@@ -85,3 +91,5 @@ instance Show LispError where show = showError
 type ThrowsError = Either LispError
 
 type Env = IORef [(String, IORef LispVal)]
+
+type IOThrowsError = ExceptT LispError IO

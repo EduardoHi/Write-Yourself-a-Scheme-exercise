@@ -2,6 +2,7 @@ module SchemeParser
   ( LispError(..)
   , ThrowsError
   , readExpr
+  , readExprList
   , unwordsList
   ) where
 
@@ -56,10 +57,16 @@ symbol = oneOf "!#$%&|*+-/:<=>?@^_~"
 spaces :: Parser ()
 spaces = skipSome space1
 
-readExpr :: String -> ThrowsError LispVal
-readExpr input = case parse parseExpr "lisp" input of
+readOrThrow :: Parser a -> String -> ThrowsError a
+readOrThrow parser input = case parse parser "lisp" input of
     Left err -> throwError $ ParserErr err
     Right val -> return val
+
+readExprList :: String -> ThrowsError [LispVal]
+readExprList = readOrThrow (endBy parseExpr spaces)
+
+readExpr :: String -> ThrowsError LispVal
+readExpr = readOrThrow parseExpr
 
 
 parseExpr :: Parser LispVal
