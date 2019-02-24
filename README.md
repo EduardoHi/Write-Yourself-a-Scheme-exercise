@@ -4,7 +4,7 @@
 ## Introduction
 this repo contains all the files I created while following the awesome tutorial of [Write Yourself a Scheme in 48 hours](https://en.wikibooks.org/wiki/Write_Yourself_a_Scheme_in_48_Hours) although I gotta admit (and you can see in the commit history) it took me far more than 48 hours. It makes me wonder wether it was 48 person hours instead of calendar hours :p. Nevertheless, If you haven't read it, it's an excellent resource to learn about haskell if you already now lisp, or learn about scheme if you already know haskell.
 
-## Differences vs. the tutorial  
+## Differences vs. the tutorial
 
 Some of the code is simply taken from the tutorial, although I manually rewrote almost all code, to work myself through the machinery.
 
@@ -30,3 +30,115 @@ there are two ways of using it:
 - batch mode: `./my_scheme file1.scm` the first argument is the file name, the rest of the arguments are binded to variable `args` inside the program
 
 (there is a third way actually, running `runhaskell SchemeRepl.hs` this has the advantage of not generating the `*.hi` and `*.o` files, but it compiles everytime.
+
+
+# Standard Library:
+
+_note: both the primitives and the standard library should behave just like the scheme standard specifies_
+
+- boolean
+  - `not`
+
+- functions
+  - `id`
+  - `flip`
+  - `curry`
+  - `compose`
+
+- number predicates
+  - `zero?`
+  - `positive?`
+  - `negative?`
+  - `odd?`
+  - `even?`
+
+- lists
+  - `null?`
+  - `list`
+  - `foldr`
+  - `foldl`
+  - `fold`
+  - `reduce`
+  - `unfold`
+  - `sum`
+  - `product`
+  - `and`
+  - `or`
+  - `max`
+  - `min`
+  - `length`
+  - `reverse`
+  - `memq`
+  - `memv`
+  - `member`
+  - `assq`
+  - `asv`
+  - `assoc`
+  - `map`
+  - `filter`
+
+# Primitive functions:
+
+- arithmetic
+  - `+`
+  - `-`
+  - `*`
+  - `/`
+  - `mod`
+  - `quotient`
+  - `remainder`
+- numeric boolean
+  - `=`
+  - `<`
+  - `>`
+  - `/=`
+  - `>=`
+  - `<=`
+- string boolean
+  - `string=?`
+  - `string<?`
+  - `string>?`
+  - `string<=?`
+  - `string>=?`
+- boolean
+  - `&&`
+  - `||`
+- lists
+  - `car`
+  - `cdr`
+  - `cons`
+- equality
+  - `eq?`
+  - `eqv?`
+  - `equal?`
+- type tests
+  - `boolean?`
+  - `pair?`
+  - `vector?`
+  - `number?`
+  - `string?`
+  - `char?`
+  - `symbol?`
+- conversions
+  - `symbol->string`
+  - `string->symbol`
+- IO Primitives
+  - `apply`
+  - `open-input-file`
+  - `open-output-file`
+  - `close-input-port`
+  - `close-output-port`
+  - `read`
+  - `write`
+  - `read-contents`
+  - `read-all`
+
+# Special Forms
+
+- `quote`
+- `if`
+- `cond`
+- `set!`
+- `define`
+- `lambda`
+- `load`
